@@ -64,7 +64,7 @@ If `typescript-mcp` is not on your `PATH`, use the full path to the binary.
 
 ## Tools Reference
 
-All tools are read-only and non-destructive. Line and column numbers are **1-based**.
+Line and column numbers are **1-based**.
 
 ### ts_diagnostics
 
@@ -266,6 +266,52 @@ interfaces, and variables with their types.
 ]
 ```
 
+### ts_rename
+
+Rename a symbol across the project. This tool **writes to disk** — all files
+containing the symbol are updated atomically (with rollback on failure). The LSP
+is re-synced after edits are applied.
+
+| Parameter  | Type   | Required | Description                  |
+|-----------|--------|----------|------------------------------|
+| `file`    | string | yes      | Absolute file path           |
+| `line`    | number | yes      | Line number (1-based)        |
+| `column`  | number | yes      | Column number (1-based)      |
+| `newName` | string | yes      | New name for the symbol      |
+| `tsconfig`| string | no       | Path to tsconfig.json        |
+
+**Example request:**
+
+```json
+{
+  "file": "/home/user/project/src/store.ts",
+  "line": 42,
+  "column": 14,
+  "newName": "repository"
+}
+```
+
+**Example response:**
+
+```json
+{
+  "newName": "repository",
+  "totalEdits": 9,
+  "changes": [
+    {
+      "file": "/home/user/project/src/actions.ts",
+      "edits": 8,
+      "preview": "import { repository } from '@/lib/store';"
+    },
+    {
+      "file": "/home/user/project/src/store.ts",
+      "edits": 1,
+      "preview": "export const repository = new Store();"
+    }
+  ]
+}
+```
+
 ### ts_project_info
 
 Get TypeScript project configuration info. Returns the tsconfig path and project
@@ -315,7 +361,12 @@ Navigate unfamiliar code using symbols, hover, and go-to-definition:
 
 ### Safe refactoring
 
-Before renaming or restructuring, find all usages first:
+Rename a symbol across the entire project in one step:
+
+1. Call `ts_rename` with the symbol's location and the new name
+2. Call `ts_diagnostics` on affected files to verify correctness
+
+Or for manual refactoring, find all usages first:
 
 1. Call `ts_references` on the symbol you want to change
 2. Edit all returned locations
@@ -368,9 +419,11 @@ internal/
     definition.go       ts_definition handler
     hover.go            ts_hover handler
     references.go       ts_references handler
+    rename.go           ts_rename handler (write tool)
     symbols.go          ts_document_symbols handler
     project.go          ts_project_info handler
     util.go             Shared utilities (readLine)
+cmd/test-client/        CLI for manual testing against real projects
 ```
 
 ## License
