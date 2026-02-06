@@ -57,6 +57,17 @@ func Register(s *server.MCPServer, client *lsp.Client, docs *docsync.Manager) {
 		mcp.WithDestructiveHintAnnotation(false),
 	), makeDocumentSymbolsHandler(client, docs))
 
+	s.AddTool(mcp.NewTool("ts_rename",
+		mcp.WithDescription("Rename a symbol across the project. Applies all changes to disk and returns a summary of modified files."),
+		mcp.WithString("file", mcp.Required(), mcp.Description("Absolute file path containing the symbol")),
+		mcp.WithNumber("line", mcp.Required(), mcp.Description("Line number (1-based)")),
+		mcp.WithNumber("column", mcp.Required(), mcp.Description("Column number (1-based)")),
+		mcp.WithString("newName", mcp.Required(), mcp.Description("New name for the symbol")),
+		mcp.WithString("tsconfig", mcp.Description("Path to tsconfig.json")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(true),
+	), makeRenameHandler(client, docs))
+
 	s.AddTool(mcp.NewTool("ts_project_info",
 		mcp.WithDescription("Get TypeScript project configuration info. Returns tsconfig path and project root directory."),
 		mcp.WithString("tsconfig", mcp.Description("Path to tsconfig.json")),

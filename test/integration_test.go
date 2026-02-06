@@ -254,6 +254,167 @@ func TestDocumentSymbols(t *testing.T) {
 	}
 }
 
+func TestRename(t *testing.T) {
+	if _, err := exec.LookPath("tsgo"); err != nil {
+		t.Skip("requires tsgo in PATH; install with: npm install -g @typescript/native-preview")
+	}
+
+	// Copy testdata/simple to a temp dir so we don't mutate the fixture.
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	filesToCopy := []string{
+		"tsconfig.json",
+		filepath.Join("src", "index.ts"),
+		filepath.Join("src", "consumer.ts"),
+		filepath.Join("src", "errors.ts"),
+	}
+	for _, rel := range filesToCopy {
+		data, err := os.ReadFile(filepath.Join(fixtureDir, rel))
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), data, 0644); err != nil {
+			t.Fatalf("WriteFile %s: %v", rel, err)
+		}
+	}
+
+	// Start a scoped LSP client rooted at tmpDir.
+	rootURI := docsync.FileToURI(tmpDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, err := lsp.NewClient(ctx, rootURI)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	docs := docsync.NewManager()
+
+	indexFile := filepath.Join(tmpDir, "src", "index.ts")
+	consumerFile := filepath.Join(tmpDir, "src", "consumer.ts")
+
+	if err := docs.SyncFile(ctx, client.Conn(), indexFile); err != nil {
+		t.Fatalf("SyncFile index.ts: %v", err)
+	}
+	if err := docs.SyncFile(ctx, client.Conn(), consumerFile); err != nil {
+		t.Fatalf("SyncFile consumer.ts: %v", err)
+	}
+	time.Sleep(1 * time.Second)
+
+	// Rename "greet" -> "sayHello" at line 1, col 17 of index.ts.
+	// index.ts line 1: `export function greet(name: string): string {`
+	//                                   ^ col 17 (1-based)
+	edit, err := client.Rename(ctx, indexFile, 1, 17, "sayHello")
+	if err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if edit == nil {
+		t.Fatal("expected workspace edit, got nil")
+	}
+	if len(edit.Changes) == 0 && len(edit.DocumentChanges) == 0 {
+		t.Fatal("expected non-empty workspace edit")
+	}
+
+	// Apply the workspace edit manually: iterate changes, apply text edits to files.
+	allEdits := make(map[string][]protocol.TextEdit)
+	for docURI, edits := range edit.Changes {
+		filePath := docsync.URIToFile(string(docURI))
+		allEdits[filePath] = append(allEdits[filePath], edits...)
+	}
+	for _, dc := range edit.DocumentChanges {
+		filePath := docsync.URIToFile(string(dc.TextDocument.URI))
+		allEdits[filePath] = append(allEdits[filePath], dc.Edits...)
+	}
+
+	if len(allEdits) == 0 {
+		t.Fatal("no file edits to apply")
+	}
+
+	for filePath, edits := range allEdits {
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", filePath, err)
+		}
+
+		// Apply edits in reverse order (bottom-up) so byte offsets remain valid.
+		// Sort by line desc, then character desc.
+		sortedEdits := make([]protocol.TextEdit, len(edits))
+		copy(sortedEdits, edits)
+		for i := 0; i < len(sortedEdits); i++ {
+			for j := i + 1; j < len(sortedEdits); j++ {
+				if sortedEdits[i].Range.Start.Line < sortedEdits[j].Range.Start.Line ||
+					(sortedEdits[i].Range.Start.Line == sortedEdits[j].Range.Start.Line &&
+						sortedEdits[i].Range.Start.Character < sortedEdits[j].Range.Start.Character) {
+					sortedEdits[i], sortedEdits[j] = sortedEdits[j], sortedEdits[i]
+				}
+			}
+		}
+
+		lines := strings.SplitAfter(string(content), "\n")
+		// Remove trailing empty string if content ends with newline.
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+
+		for _, te := range sortedEdits {
+			startLine := int(te.Range.Start.Line)
+			endLine := int(te.Range.End.Line)
+			startChar := int(te.Range.Start.Character)
+			endChar := int(te.Range.End.Character)
+
+			if startLine >= len(lines) || endLine >= len(lines) {
+				t.Fatalf("edit out of bounds: line %d-%d, file has %d lines", startLine, endLine, len(lines))
+			}
+
+			// Reconstruct the affected region.
+			before := lines[startLine][:startChar]
+			after := lines[endLine][endChar:]
+			replacement := before + te.NewText + after
+
+			// Replace the affected lines with the replacement.
+			newLines := make([]string, 0, len(lines))
+			newLines = append(newLines, lines[:startLine]...)
+			newLines = append(newLines, replacement)
+			newLines = append(newLines, lines[endLine+1:]...)
+			lines = newLines
+		}
+
+		newContent := strings.Join(lines, "")
+		if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+			t.Fatalf("WriteFile %s: %v", filePath, err)
+		}
+	}
+
+	// Verify index.ts has "sayHello" and not "greet" (as function name).
+	indexContent, err := os.ReadFile(indexFile)
+	if err != nil {
+		t.Fatalf("ReadFile index.ts: %v", err)
+	}
+	if !strings.Contains(string(indexContent), "sayHello") {
+		t.Errorf("index.ts should contain 'sayHello', got:\n%s", string(indexContent))
+	}
+	if strings.Contains(string(indexContent), "function greet") {
+		t.Errorf("index.ts should not contain 'function greet', got:\n%s", string(indexContent))
+	}
+
+	// Verify consumer.ts has "sayHello" and not "greet".
+	consumerContent, err := os.ReadFile(consumerFile)
+	if err != nil {
+		t.Fatalf("ReadFile consumer.ts: %v", err)
+	}
+	if !strings.Contains(string(consumerContent), "sayHello") {
+		t.Errorf("consumer.ts should contain 'sayHello', got:\n%s", string(consumerContent))
+	}
+	if strings.Contains(string(consumerContent), "greet") {
+		t.Errorf("consumer.ts should not contain 'greet', got:\n%s", string(consumerContent))
+	}
+}
+
 func TestProjectInfo(t *testing.T) {
 	tsconfigPath := filepath.Join(fixtureDir, "tsconfig.json")
 
