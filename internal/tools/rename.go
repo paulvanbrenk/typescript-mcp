@@ -77,9 +77,16 @@ func makeRenameHandler(client *lsp.Client, docs *docsync.Manager) server.ToolHan
 
 		ClearFileCache()
 
+		// Build change list in sorted path order for deterministic output.
 		totalEdits := 0
+		sortedPaths := make([]string, 0, len(changes))
+		for p := range changes {
+			sortedPaths = append(sortedPaths, p)
+		}
+		sort.Strings(sortedPaths)
 		changeList := make([]editInfo, 0, len(changes))
-		for _, info := range changes {
+		for _, p := range sortedPaths {
+			info := changes[p]
 			totalEdits += info.Edits
 			changeList = append(changeList, info)
 		}
