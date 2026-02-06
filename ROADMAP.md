@@ -2,7 +2,7 @@
 
 ## v0.2 — More Tools
 
-- [ ] `ts_rename` — rename symbol across project (first write tool)
+- [x] `ts_rename` — rename symbol across project (first write tool)
 - [ ] `ts_completions` — code completions at a position
 - [ ] `ts_workspace_symbols` — search symbols across the whole project by name
 - [ ] `ts_code_actions` — quick fixes and refactors (auto-import, extract function, etc.)
