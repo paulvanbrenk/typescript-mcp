@@ -1,0 +1,17 @@
+# Binaries
+/typescript-mcp
+*.exe
+
+# Dependencies
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Beads (local issue tracking)
+.beads/
