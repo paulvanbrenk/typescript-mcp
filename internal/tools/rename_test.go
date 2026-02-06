@@ -232,9 +232,9 @@ func TestApplyWorkspaceEdit(t *testing.T) {
 			},
 		}
 
-		result, err := applyWorkspaceEdit(edit)
+		result, err := ApplyWorkspaceEdit(edit)
 		if err != nil {
-			t.Fatalf("applyWorkspaceEdit: %v", err)
+			t.Fatalf("ApplyWorkspaceEdit: %v", err)
 		}
 
 		if len(result) != 2 {
@@ -265,8 +265,10 @@ func TestApplyWorkspaceEdit(t *testing.T) {
 	t.Run("rollback on write failure", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		writableFile := filepath.Join(tmpDir, "writable.ts")
-		readonlyFile := filepath.Join(tmpDir, "readonly.ts")
+		// Names chosen so "aaa_writable.ts" sorts before "zzz_readonly.ts",
+		// guaranteeing the writable file is written first and must be rolled back.
+		writableFile := filepath.Join(tmpDir, "aaa_writable.ts")
+		readonlyFile := filepath.Join(tmpDir, "zzz_readonly.ts")
 
 		writableContent := "const a = greet;\n"
 		readonlyContent := "const b = greet;\n"
@@ -306,7 +308,7 @@ func TestApplyWorkspaceEdit(t *testing.T) {
 			},
 		}
 
-		_, err := applyWorkspaceEdit(edit)
+		_, err := ApplyWorkspaceEdit(edit)
 		if err == nil {
 			t.Fatal("expected error due to read-only file, got nil")
 		}

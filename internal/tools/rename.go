@@ -46,6 +46,9 @@ func makeRenameHandler(client *lsp.Client, docs *docsync.Manager) server.ToolHan
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		if newName == "" {
+			return mcp.NewToolResultError("newName must not be empty"), nil
+		}
 
 		if err := docs.SyncFile(ctx, client.Conn(), file); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("sync error: %v", err)), nil
@@ -60,7 +63,7 @@ func makeRenameHandler(client *lsp.Client, docs *docsync.Manager) server.ToolHan
 			return mcp.NewToolResultError("rename produced no changes"), nil
 		}
 
-		changes, err := applyWorkspaceEdit(edit)
+		changes, err := ApplyWorkspaceEdit(edit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("apply error: %v", err)), nil
 		}
@@ -75,12 +78,10 @@ func makeRenameHandler(client *lsp.Client, docs *docsync.Manager) server.ToolHan
 		ClearFileCache()
 
 		totalEdits := 0
-		var changeList []editInfo
-		for _, infos := range changes {
-			for _, info := range infos {
-				totalEdits += info.Edits
-				changeList = append(changeList, info)
-			}
+		changeList := make([]editInfo, 0, len(changes))
+		for _, info := range changes {
+			totalEdits += info.Edits
+			changeList = append(changeList, info)
 		}
 
 		result := renameResult{
@@ -97,32 +98,50 @@ func makeRenameHandler(client *lsp.Client, docs *docsync.Manager) server.ToolHan
 	}
 }
 
-// applyWorkspaceEdit applies a WorkspaceEdit to disk. It returns a map from
+// ApplyWorkspaceEdit applies a WorkspaceEdit to disk. It returns a map from
 // file path to the edit info for that file. On any write failure, previously
-// written files are rolled back to their original content.
-func applyWorkspaceEdit(edit *protocol.WorkspaceEdit) (map[string][]editInfo, error) {
-	// Normalize: merge DocumentChanges into the Changes map so we have a
-	// single representation to process.
+// written files are rolled back to their original content. Files are processed
+// in sorted path order for deterministic behavior.
+func ApplyWorkspaceEdit(edit *protocol.WorkspaceEdit) (map[string]editInfo, error) {
+	// We request the simpler Changes format via DocumentChanges:false in
+	// capabilities, but defensively handle DocumentChanges too in case a
+	// server ignores the capability.
 	merged := make(map[protocol.DocumentURI][]protocol.TextEdit)
 	for docURI, edits := range edit.Changes {
 		merged[docURI] = append(merged[docURI], edits...)
 	}
 	for _, dc := range edit.DocumentChanges {
-		docURI := dc.TextDocument.URI
-		merged[docURI] = append(merged[docURI], dc.Edits...)
+		merged[dc.TextDocument.URI] = append(merged[dc.TextDocument.URI], dc.Edits...)
 	}
+
+	// Collect file paths in sorted order for deterministic processing.
+	paths := make([]string, 0, len(merged))
+	pathToURI := make(map[string]protocol.DocumentURI, len(merged))
+	for docURI := range merged {
+		p := docsync.URIToFile(string(docURI))
+		paths = append(paths, p)
+		pathToURI[p] = docURI
+	}
+	sort.Strings(paths)
 
 	// Read originals, compute new contents.
 	type fileWork struct {
 		path     string
+		mode     os.FileMode
 		original []byte
 		updated  []byte
 		edits    []protocol.TextEdit
 	}
-	var work []fileWork
+	work := make([]fileWork, 0, len(paths))
 
-	for docURI, edits := range merged {
-		filePath := docsync.URIToFile(string(docURI))
+	for _, filePath := range paths {
+		docURI := pathToURI[filePath]
+		edits := merged[docURI]
+
+		fi, err := os.Stat(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("stat %s: %w", filePath, err)
+		}
 		original, err := os.ReadFile(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", filePath, err)
@@ -133,6 +152,7 @@ func applyWorkspaceEdit(edit *protocol.WorkspaceEdit) (map[string][]editInfo, er
 		}
 		work = append(work, fileWork{
 			path:     filePath,
+			mode:     fi.Mode().Perm(),
 			original: original,
 			updated:  updated,
 			edits:    edits,
@@ -142,10 +162,10 @@ func applyWorkspaceEdit(edit *protocol.WorkspaceEdit) (map[string][]editInfo, er
 	// Write all files; rollback on failure.
 	var written []fileWork
 	for _, w := range work {
-		if err := os.WriteFile(w.path, w.updated, 0644); err != nil {
+		if err := os.WriteFile(w.path, w.updated, w.mode); err != nil {
 			// Rollback previously written files.
 			for _, prev := range written {
-				_ = os.WriteFile(prev.path, prev.original, 0644)
+				_ = os.WriteFile(prev.path, prev.original, prev.mode)
 			}
 			return nil, fmt.Errorf("writing %s: %w", w.path, err)
 		}
@@ -153,17 +173,18 @@ func applyWorkspaceEdit(edit *protocol.WorkspaceEdit) (map[string][]editInfo, er
 	}
 
 	// Build result info.
-	result := make(map[string][]editInfo)
+	result := make(map[string]editInfo, len(work))
 	for _, w := range work {
 		preview := ""
-		if lines := strings.SplitN(string(w.updated), "\n", int(firstEditLine(w.edits))+2); len(lines) > int(firstEditLine(w.edits)) {
-			preview = strings.TrimSpace(lines[firstEditLine(w.edits)])
+		fl := int(firstEditLine(w.edits))
+		if lines := strings.SplitN(string(w.updated), "\n", fl+2); len(lines) > fl {
+			preview = strings.TrimSpace(lines[fl])
 		}
-		result[w.path] = append(result[w.path], editInfo{
+		result[w.path] = editInfo{
 			File:    w.path,
 			Edits:   len(w.edits),
 			Preview: preview,
-		})
+		}
 	}
 	return result, nil
 }

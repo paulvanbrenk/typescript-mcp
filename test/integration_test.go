@@ -15,6 +15,7 @@ import (
 
 	"github.com/paulvanbrenk/typescript-mcp/internal/docsync"
 	"github.com/paulvanbrenk/typescript-mcp/internal/lsp"
+	"github.com/paulvanbrenk/typescript-mcp/internal/tools"
 )
 
 var (
@@ -320,74 +321,13 @@ func TestRename(t *testing.T) {
 		t.Fatal("expected non-empty workspace edit")
 	}
 
-	// Apply the workspace edit manually: iterate changes, apply text edits to files.
-	allEdits := make(map[string][]protocol.TextEdit)
-	for docURI, edits := range edit.Changes {
-		filePath := docsync.URIToFile(string(docURI))
-		allEdits[filePath] = append(allEdits[filePath], edits...)
+	// Apply the workspace edit using the production code path.
+	changes, err := tools.ApplyWorkspaceEdit(edit)
+	if err != nil {
+		t.Fatalf("ApplyWorkspaceEdit: %v", err)
 	}
-	for _, dc := range edit.DocumentChanges {
-		filePath := docsync.URIToFile(string(dc.TextDocument.URI))
-		allEdits[filePath] = append(allEdits[filePath], dc.Edits...)
-	}
-
-	if len(allEdits) == 0 {
-		t.Fatal("no file edits to apply")
-	}
-
-	for filePath, edits := range allEdits {
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			t.Fatalf("ReadFile %s: %v", filePath, err)
-		}
-
-		// Apply edits in reverse order (bottom-up) so byte offsets remain valid.
-		// Sort by line desc, then character desc.
-		sortedEdits := make([]protocol.TextEdit, len(edits))
-		copy(sortedEdits, edits)
-		for i := 0; i < len(sortedEdits); i++ {
-			for j := i + 1; j < len(sortedEdits); j++ {
-				if sortedEdits[i].Range.Start.Line < sortedEdits[j].Range.Start.Line ||
-					(sortedEdits[i].Range.Start.Line == sortedEdits[j].Range.Start.Line &&
-						sortedEdits[i].Range.Start.Character < sortedEdits[j].Range.Start.Character) {
-					sortedEdits[i], sortedEdits[j] = sortedEdits[j], sortedEdits[i]
-				}
-			}
-		}
-
-		lines := strings.SplitAfter(string(content), "\n")
-		// Remove trailing empty string if content ends with newline.
-		if len(lines) > 0 && lines[len(lines)-1] == "" {
-			lines = lines[:len(lines)-1]
-		}
-
-		for _, te := range sortedEdits {
-			startLine := int(te.Range.Start.Line)
-			endLine := int(te.Range.End.Line)
-			startChar := int(te.Range.Start.Character)
-			endChar := int(te.Range.End.Character)
-
-			if startLine >= len(lines) || endLine >= len(lines) {
-				t.Fatalf("edit out of bounds: line %d-%d, file has %d lines", startLine, endLine, len(lines))
-			}
-
-			// Reconstruct the affected region.
-			before := lines[startLine][:startChar]
-			after := lines[endLine][endChar:]
-			replacement := before + te.NewText + after
-
-			// Replace the affected lines with the replacement.
-			newLines := make([]string, 0, len(lines))
-			newLines = append(newLines, lines[:startLine]...)
-			newLines = append(newLines, replacement)
-			newLines = append(newLines, lines[endLine+1:]...)
-			lines = newLines
-		}
-
-		newContent := strings.Join(lines, "")
-		if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
-			t.Fatalf("WriteFile %s: %v", filePath, err)
-		}
+	if len(changes) == 0 {
+		t.Fatal("no file changes applied")
 	}
 
 	// Verify index.ts has "sayHello" and not "greet" (as function name).
