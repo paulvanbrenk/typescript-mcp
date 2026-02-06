@@ -15,6 +15,7 @@ import (
 
 	"github.com/paulvanbrenk/typescript-mcp/internal/docsync"
 	"github.com/paulvanbrenk/typescript-mcp/internal/lsp"
+	"github.com/paulvanbrenk/typescript-mcp/internal/tools"
 )
 
 var (
@@ -251,6 +252,106 @@ func TestDocumentSymbols(t *testing.T) {
 		if sym.Range.Start.Line != w.line {
 			t.Errorf("symbol %q: Range.Start.Line = %d, want %d", w.name, sym.Range.Start.Line, w.line)
 		}
+	}
+}
+
+func TestRename(t *testing.T) {
+	if _, err := exec.LookPath("tsgo"); err != nil {
+		t.Skip("requires tsgo in PATH; install with: npm install -g @typescript/native-preview")
+	}
+
+	// Copy testdata/simple to a temp dir so we don't mutate the fixture.
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	filesToCopy := []string{
+		"tsconfig.json",
+		filepath.Join("src", "index.ts"),
+		filepath.Join("src", "consumer.ts"),
+		filepath.Join("src", "errors.ts"),
+	}
+	for _, rel := range filesToCopy {
+		data, err := os.ReadFile(filepath.Join(fixtureDir, rel))
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", rel, err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, rel), data, 0644); err != nil {
+			t.Fatalf("WriteFile %s: %v", rel, err)
+		}
+	}
+
+	// Start a scoped LSP client rooted at tmpDir.
+	rootURI := docsync.FileToURI(tmpDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, err := lsp.NewClient(ctx, rootURI)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	docs := docsync.NewManager()
+
+	indexFile := filepath.Join(tmpDir, "src", "index.ts")
+	consumerFile := filepath.Join(tmpDir, "src", "consumer.ts")
+
+	if err := docs.SyncFile(ctx, client.Conn(), indexFile); err != nil {
+		t.Fatalf("SyncFile index.ts: %v", err)
+	}
+	if err := docs.SyncFile(ctx, client.Conn(), consumerFile); err != nil {
+		t.Fatalf("SyncFile consumer.ts: %v", err)
+	}
+	time.Sleep(1 * time.Second)
+
+	// Rename "greet" -> "sayHello" at line 1, col 17 of index.ts.
+	// index.ts line 1: `export function greet(name: string): string {`
+	//                                   ^ col 17 (1-based)
+	edit, err := client.Rename(ctx, indexFile, 1, 17, "sayHello")
+	if err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if edit == nil {
+		t.Fatal("expected workspace edit, got nil")
+	}
+	if len(edit.Changes) == 0 && len(edit.DocumentChanges) == 0 {
+		t.Fatal("expected non-empty workspace edit")
+	}
+
+	// Apply the workspace edit using the production code path.
+	changes, err := tools.ApplyWorkspaceEdit(edit)
+	if err != nil {
+		t.Fatalf("ApplyWorkspaceEdit: %v", err)
+	}
+	if len(changes) == 0 {
+		t.Fatal("no file changes applied")
+	}
+
+	// Verify index.ts has "sayHello" and not "greet" (as function name).
+	indexContent, err := os.ReadFile(indexFile)
+	if err != nil {
+		t.Fatalf("ReadFile index.ts: %v", err)
+	}
+	if !strings.Contains(string(indexContent), "sayHello") {
+		t.Errorf("index.ts should contain 'sayHello', got:\n%s", string(indexContent))
+	}
+	if strings.Contains(string(indexContent), "function greet") {
+		t.Errorf("index.ts should not contain 'function greet', got:\n%s", string(indexContent))
+	}
+
+	// Verify consumer.ts has "sayHello" and not "greet".
+	consumerContent, err := os.ReadFile(consumerFile)
+	if err != nil {
+		t.Fatalf("ReadFile consumer.ts: %v", err)
+	}
+	if !strings.Contains(string(consumerContent), "sayHello") {
+		t.Errorf("consumer.ts should contain 'sayHello', got:\n%s", string(consumerContent))
+	}
+	if strings.Contains(string(consumerContent), "greet") {
+		t.Errorf("consumer.ts should not contain 'greet', got:\n%s", string(consumerContent))
 	}
 }
 

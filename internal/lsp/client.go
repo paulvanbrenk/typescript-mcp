@@ -110,6 +110,14 @@ func (c *Client) initialize(ctx context.Context) error {
 				DocumentSymbol: &protocol.DocumentSymbolClientCapabilities{
 					HierarchicalDocumentSymbolSupport: true,
 				},
+				Rename: &protocol.RenameClientCapabilities{
+					PrepareSupport: false,
+				},
+			},
+			Workspace: &protocol.WorkspaceClientCapabilities{
+				WorkspaceEdit: &protocol.WorkspaceClientCapabilitiesWorkspaceEdit{
+					DocumentChanges: false,
+				},
 			},
 		},
 	})
@@ -158,6 +166,18 @@ func (c *Client) References(ctx context.Context, file string, line, col int) ([]
 		Context: protocol.ReferenceContext{
 			IncludeDeclaration: true,
 		},
+	})
+}
+
+// Rename renames a symbol at the given position.
+// Line and column are 1-based (converted to 0-based for LSP).
+func (c *Client) Rename(ctx context.Context, file string, line, col int, newName string) (*protocol.WorkspaceEdit, error) {
+	if line < 1 || col < 1 {
+		return nil, fmt.Errorf("line and column must be >= 1, got line=%d col=%d", line, col)
+	}
+	return c.server.Rename(ctx, &protocol.RenameParams{
+		TextDocumentPositionParams: makePosition(file, line, col),
+		NewName:                    newName,
 	})
 }
 

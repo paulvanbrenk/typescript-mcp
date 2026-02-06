@@ -64,6 +64,7 @@ Available tools:
 - ts_definition: Go to the definition of a symbol
 - ts_hover: Get type information and documentation for a symbol
 - ts_references: Find all references to a symbol across the project
+- ts_rename: Rename a symbol across the project (writes changes to disk)
 - ts_document_symbols: Get the symbol outline of a file
 - ts_project_info: Get TypeScript project configuration info
 
@@ -71,4 +72,5 @@ Workflow:
 1. After editing TypeScript files, use ts_diagnostics to check for type errors
 2. Use ts_hover to understand types and ts_definition to navigate code
 3. Use ts_references before renaming or refactoring to find all usages
-4. Use ts_document_symbols to get a file overview without reading the full source`
+4. Use ts_rename to rename symbols — it applies all changes across the project
+5. Use ts_document_symbols to get a file overview without reading the full source`
