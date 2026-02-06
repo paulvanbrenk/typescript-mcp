@@ -1,4 +1,4 @@
-module github.com/pvanbrenk/typescript-mcp
+module github.com/paulvanbrenk/typescript-mcp
 
 go 1.24
 

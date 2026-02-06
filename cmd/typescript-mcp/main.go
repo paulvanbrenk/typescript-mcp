@@ -9,9 +9,9 @@ import (
 	"syscall"
 
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/pvanbrenk/typescript-mcp/internal/docsync"
-	"github.com/pvanbrenk/typescript-mcp/internal/lsp"
-	"github.com/pvanbrenk/typescript-mcp/internal/tools"
+	"github.com/paulvanbrenk/typescript-mcp/internal/docsync"
+	"github.com/paulvanbrenk/typescript-mcp/internal/lsp"
+	"github.com/paulvanbrenk/typescript-mcp/internal/tools"
 )
 
 func main() {

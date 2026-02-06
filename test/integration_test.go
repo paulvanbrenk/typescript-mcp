@@ -13,8 +13,8 @@ import (
 
 	"go.lsp.dev/protocol"
 
-	"github.com/pvanbrenk/typescript-mcp/internal/docsync"
-	"github.com/pvanbrenk/typescript-mcp/internal/lsp"
+	"github.com/paulvanbrenk/typescript-mcp/internal/docsync"
+	"github.com/paulvanbrenk/typescript-mcp/internal/lsp"
 )
 
 var (

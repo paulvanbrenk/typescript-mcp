@@ -34,13 +34,13 @@ JSON-RPC, and translates LSP responses into concise, agent-friendly JSON.
 ## Installation
 
 ```bash
-go install github.com/pvanbrenk/typescript-mcp/cmd/typescript-mcp@latest
+go install github.com/paulvanbrenk/typescript-mcp/cmd/typescript-mcp@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/pvanbrenk/typescript-mcp.git
+git clone https://github.com/paulvanbrenk/typescript-mcp.git
 cd typescript-mcp
 go build -o typescript-mcp ./cmd/typescript-mcp
 ```

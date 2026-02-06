@@ -3,8 +3,8 @@ package tools
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/pvanbrenk/typescript-mcp/internal/docsync"
-	"github.com/pvanbrenk/typescript-mcp/internal/lsp"
+	"github.com/paulvanbrenk/typescript-mcp/internal/docsync"
+	"github.com/paulvanbrenk/typescript-mcp/internal/lsp"
 )
 
 // Register adds all TypeScript tool handlers to the MCP server.
