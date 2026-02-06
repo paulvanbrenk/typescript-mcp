@@ -11,7 +11,7 @@ func TestExtractConciseHover(t *testing.T) {
 		{
 			name: "code block",
 			md:   "```typescript\nfunction greet(name: string): string\n```\nSome docs",
-			want: "function greet(name: string): string",
+			want: "this should fail",
 		},
 		{
 			name: "no code block",
